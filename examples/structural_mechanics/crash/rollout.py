@@ -141,9 +141,9 @@ class TransolverTimeConditionalRollout(Transolver):
             if self.training:
                 outf = ckpt(
                     step_fn,
-                    fx_t.unsqueeze(0),
-                    x.unsqueeze(0),
-                    time.unsqueeze(0),
+                    fx_t.unsqueeze(0), # [1,N,F]
+                    x.unsqueeze(0),    # [1,N,3]
+                    time.unsqueeze(0), # [1]
                     use_reentrant=False,
                 ).squeeze(0)
             else:

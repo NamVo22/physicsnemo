@@ -174,3 +174,9 @@ multirun/
 # SLURM
 slurm-*.out
 sbatch_logs/
+
+# Local crash example artifacts
+.local/
+examples/structural_mechanics/crash/runs/
+examples/structural_mechanics/crash/stats/
+examples/structural_mechanics/crash/output_run_*/

@@ -47,9 +47,9 @@ class SimSample:
 
     def __init__(
         self,
-        node_features: dict[str, torch.Tensor],
-        node_target: torch.Tensor,
-        graph: Optional[Data] = None,
+        node_features: dict[str, torch.Tensor],  # node_features = {"coords": tensor [N, 3],"features": tensor [N, F],}
+        node_target: torch.Tensor,               # [N, F]
+        graph: Optional[Data] = None,            # [N, (T-1)*3]
     ):
         assert isinstance(node_features, dict), "node_features must be a dict"
         assert "coords" in node_features, "node_features must contain 'coords'"
@@ -484,6 +484,11 @@ class CrashPointCloudDataset(CrashBaseDataset):
     def __getitem__(self, idx: int):
         assert 0 <= idx < self.num_samples, f"Index {idx} out of range"
         x, y = self.build_xy(idx)
+
+        #x["coords"]   : [N, 3]
+        #x["features"] : [N, F]
+        #y             : [N, (T-1)*3]
+
         return SimSample(node_features=x, node_target=y)
 
 

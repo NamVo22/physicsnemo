@@ -138,16 +138,20 @@ class InferenceWorker:
         self.num_workers = cfg.training.num_dataloader_workers
 
     @torch.no_grad()
-    def run_on_single_run(self, run_path: str):
+    def run_on_single_run(self, run_path: str, run_name: str | None = None):
         """
-        Process a single run directory: build a one-run dataset with a temporary symlink, run inference, and save outputs.
+        Process a single run: build a one-run dataset, run inference, and save outputs.
+
+        VTP datasets are stored as flat .vtp files, while older d3plot-style
+        datasets may be stored as run directories.
         """
-        run_name = os.path.basename(run_path)
+        run_name = run_name or os.path.splitext(os.path.basename(run_path))[0]
         self.logger.info(f"[Rank {self.dist.rank}] Processing run: {run_name}")
 
-        # Create a temporary directory exposing this run as the ONLY child (as your original script did)
+        # Create a temporary directory exposing this run as the ONLY sample.
         with tempfile.TemporaryDirectory() as tmpdir:
-            os.symlink(run_path, os.path.join(tmpdir, run_name))
+            link_name = os.path.basename(run_path)
+            os.symlink(run_path, os.path.join(tmpdir, link_name))
 
             # Instantiate a dataset that sees exactly one run
             reader = instantiate(self.cfg.reader)
@@ -267,29 +271,40 @@ def main(cfg: DictConfig):
     logger0.file_logging()
     logging.getLogger().setLevel(logging.INFO)
 
-    # Discover all Run* directories under the parent test folder
+    # Discover VTP files first (flat layout); fall back to run directories.
     parent_dir = to_absolute_path(cfg.inference.raw_data_dir_test)
     if not os.path.isdir(parent_dir):
         logger0.error(f"Parent directory not found: {parent_dir}")
         return
 
-    run_dirs = [d.path for d in os.scandir(parent_dir) if d.is_dir()]
-    run_dirs.sort()
+    run_items = [
+        f.path
+        for f in os.scandir(parent_dir)
+        if f.is_file() and f.name.lower().endswith(".vtp")
+    ]
+    run_items.sort()
+    run_names = [os.path.splitext(os.path.basename(p))[0] for p in run_items]
 
-    if len(run_dirs) == 0:
-        logger0.error(f"No run directories found under: {parent_dir}")
+    if len(run_items) == 0:
+        run_items = [d.path for d in os.scandir(parent_dir) if d.is_dir()]
+        run_items.sort()
+        run_names = [os.path.basename(p) for p in run_items]
+
+    if len(run_items) == 0:
+        logger0.error(f"No .vtp files or run directories found under: {parent_dir}")
         return
 
-    logger0.info(f"Found {len(run_dirs)} runs under {parent_dir}")
+    logger0.info(f"Found {len(run_items)} runs under {parent_dir}")
 
-    # Shard run list across ranks: rank r processes run_dirs[r::world_size]
-    my_runs = run_dirs[dist.rank :: dist.world_size]
-    logger.info(f"[Rank {dist.rank}] Assigned {len(my_runs)} runs.")
+    # Shard run list across ranks: rank r processes run_items[r::world_size]
+    my_items = run_items[dist.rank :: dist.world_size]
+    my_names = run_names[dist.rank :: dist.world_size]
+    logger.info(f"[Rank {dist.rank}] Assigned {len(my_items)} runs.")
 
     worker = InferenceWorker(cfg, logger, dist)
 
-    for run_path in my_runs:
-        worker.run_on_single_run(run_path)
+    for run_path, run_name in zip(my_items, my_names):
+        worker.run_on_single_run(run_path, run_name=run_name)
 
     if dist.rank == 0:
         logger0.info("Inference completed successfully.")
